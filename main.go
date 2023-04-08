@@ -3,72 +3,93 @@ package main
 import (
 	"fmt"
 
-	config "github.com/Totus-Floreo/tgbotKulakova/config"
+	"github.com/Totus-Floreo/tgbotKulakova/config"
+	logging "github.com/Totus-Floreo/tgbotKulakova/utils/logging"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func main() {
-	fmt.Println("Starting...")
-	bot, err := tgbotapi.NewBotAPI(config.TELEGRAM_APITOKEN)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Working...")
-	bot.Debug = true
-	updateConfig := tgbotapi.NewUpdate(0)
-	updateConfig.Timeout = 30
-	updates := bot.GetUpdatesChan(updateConfig)
-	for update := range updates {
-		if update.ChosenInlineResult == nil {
-			continue
-		}
-		switch update.FromChat().Type {
-		case "private":
-			if update.Message == nil {
-				continue
-			}
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, update.Message.Text)
-			msg.ReplyToMessageID = update.Message.MessageID
-			if _, err := bot.Send(msg); err != nil {
-				panic(err)
-			}
-		case "channel":
-			if  {
-				continue
-			}
-			channelName := fmt.Sprintf("@%s", update.ChannelPost.SenderChat.UserName)
-			pst := tgbotapi.NewMessageToChannel(channelName, update.ChannelPost.Text)
-			if _, err := bot.Send(pst); err != nil {
-				panic(err)
-			}
-		case "supergroup":
-			if update.Message == nil {
-				continue
-			}
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, update.Message.Text)
-			msg.ReplyToMessageID = update.Message.MessageID
-			if _, err := bot.Send(msg); err != nil {
-				panic(err)
-			}
-		}
-	}
-	fmt.Println("Stoping...")
+var AllowedUpdates = []string{
+	"message",
+	"edited_message",
+	"my_chat_member",
+	"callback_query",
+	"chat_member",
+	"channel_post",
+	"edited_channel_post",
+	// ! unused updates
+	// "inline_query",
+	// "chosen_inline_result",
+	// "shipping_query",
+	// "pre_checkout_query",
+	// "poll",
+	// "poll_answer",
+	// "chat_join_request",
 }
 
-//pm
+func main() {
+	fmt.Println("Starting...")
+	logger := logging.Initialize()
+	defer logger.Sync()
+	logger.Info("Starting the application...")
+	bot, err := tgbotapi.NewBotAPI(config.TELEGRAM_APITOKEN)
+	if err != nil {
+		logger.DPanic(err.Error())
+		panic(err)
+	}
+	bot.Debug = true
 
-// Endpoint: getUpdates, response: {"ok":true,"result":[{"update_id":115121081,
-// "message":{"message_id":54,"from":{"id":214659520,"is_bot":false,"first_name":"Timur","last_name":"Kulakov","username":"hietotusfloreo","language_code":"en"},
-// "chat":{"id":214659520,"first_name":"Timur","last_name":"Kulakov","username":"hietotusfloreo","type":"private"},"date":1680548947,"text":"12"}}]}
+	defer bot.Send(tgbotapi.NewMessage(config.Owner_ID, "Im dead"))
+	if _, err := bot.Send(tgbotapi.NewMessage(config.Owner_ID, "Im live")); err != nil {
+		logger.DPanic(err.Error())
+		panic(err)
+	}
 
-//ch
+	updateConfig := tgbotapi.NewUpdate(0)
+	updateConfig.Timeout = 30
+	updateConfig.AllowedUpdates = AllowedUpdates
+	updates := bot.GetUpdatesChan(updateConfig)
+	for update := range updates {
+		go func(u tgbotapi.Update) {
+			var answer tgbotapi.MessageConfig
+			switch u.FromChat().Type {
+			case "private":
+				if u.Message == nil || !u.Message.IsCommand() {
+					return
+				}
+				answer = msgInChat(u)
+			case "channel":
+				if u.ChannelPost == nil || !u.ChannelPost.IsCommand() {
+					return
+				}
+				answer = pstInChan(u)
+			case "supergroup":
+				if u.Message == nil || !u.Message.IsCommand() {
+					return
+				}
+				answer = msgInGroup(u)
+			}
+			if _, err := bot.Send(answer); err != nil {
+				logger.DPanic(err.Error())
+				panic(err)
+			}
+		}(update)
+	}
+}
 
-// Endpoint: getUpdates, response: {"ok":true,"result":[{"update_id":115121083,
-// "channel_post":{"message_id":29,"sender_chat":{"id":-1001961815317,"title":"testChannel","type":"channel"},
-// "chat":{"id":-1001961815317,"title":"testChannel","type":"channel"},"date":1680549050,"text":"12"}}]}
+func msgInChat(update tgbotapi.Update) tgbotapi.MessageConfig {
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "done")
+	msg.ReplyToMessageID = update.Message.MessageID
+	return msg
+}
 
-//gr
+func pstInChan(update tgbotapi.Update) tgbotapi.MessageConfig {
+	channelName := fmt.Sprintf("@%s", update.ChannelPost.SenderChat.UserName)
+	pst := tgbotapi.NewMessageToChannel(channelName, "done")
+	return pst
+}
 
-// Endpoint: getUpdates, response: {"ok":true,"result":[{"update_id":115121132,
-// "message":{"message_id":6,"from":{"id":214659520,"is_bot":false,"first_name":"Timur","last_name":"Kulakov","username":"hietotusfloreo","language_code":"en"},
-// "chat":{"id":-1001906889117,"title":"testGroup","type":"supergroup"},"date":1680553456,"text":"1"}}]}
+func msgInGroup(update tgbotapi.Update) tgbotapi.MessageConfig {
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "done")
+	msg.ReplyToMessageID = update.Message.MessageID
+	return msg
+}
